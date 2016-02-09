@@ -83,7 +83,7 @@ USE_MPI ?= on
 # turns on SHMEM parallel communications on SGI (bin)
 USE_SHMEM ?=
 # which FFT library to use (fftw,fftw3,mkl_fftw,undefined) 
-USE_FFT ?= 
+USE_FFT ?= fftw3
 # uses netcdf library (bin)
 USE_NETCDF ?= on
 # uses parallel netcdf library
@@ -261,6 +261,11 @@ endif
 # Define GK_SYSTEM for runtime_tests so that we can get the system name
 # at runtime
 CPPFLAGS+=-DGK_SYSTEM='"$(GK_SYSTEM)"'
+
+ifdef USE_SHMEM
+$(warning USE_SHMEM is not working yet)
+	override USE_SHMEM =	
+endif
 
 ifdef USE_HDF5
 	ifndef USE_MPI
