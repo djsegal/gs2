@@ -65,11 +65,13 @@ module unit_tests
      module procedure agrees_with_complex_1d_array
      !module procedure agrees_with_real_2d_array
      module procedure agrees_with_integer
+     module procedure agrees_with_character
   end interface agrees_with
 
   interface should_be
      module procedure should_be_int
      module procedure should_be_real
+     module procedure should_be_character
   end interface should_be
 
 contains
@@ -80,6 +82,13 @@ contains
     character(16) :: proc_message
     write(proc_message, '(A10,I2)') ' on iproc ', iproc
   end function proc_message
+
+  function agrees_with_character(val, correct)
+    character(*), intent(in) :: val, correct
+    logical :: agrees_with_character
+    call should_be(val, correct)
+    agrees_with_character = (val .eq. correct)
+  end function agrees_with_character
 
   function agrees_with_integer(val, correct)
     integer, intent(in) :: val, correct
@@ -146,6 +155,11 @@ contains
       should_print = (verbosity() .ge. verbosity_level)
     end if
   end function should_print
+
+  subroutine should_be_character(val, rslt)
+    character(*), intent(in) :: val, rslt
+    if (should_print(3)) write (*,*) '      Value: ', val, ' should be ', rslt, proc_message()
+  end subroutine should_be_character
 
   subroutine should_be_int(val, rslt)
     integer, intent(in) :: val, rslt

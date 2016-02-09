@@ -1,69 +1,47 @@
-#define CONCAT //
 
-!> A program that tests the new diagnostics module. It  runs 
-!! a  linear cyclone test case and then checks that the old and
-!! new diagnostics give the same results
+!> A program that tests the multigs2_library module. It  runs 
+!! a linear ion simulation followed by 4 concurrent linear electron simulations.
 !!
 !! This is free software released under the MIT license
 !!   Written by: Edmund Highcock (edmundhighcock@users.sourceforge.net)
+!!             Michael Hardman (mhardman1@users.sourceforge.net)
 
-!module checks_mod
-!  use unit_tests
-!  use functional_tests
-!  public checks
-!  contains
-!    function checks()
-!      logical :: checks
-!      checks = .true.
-!    end function checks
-!end module checks_mod
-!
-program test_gs2_diagnostics
-  !use functional_tests
-  !use checks_mod
-  !call test_gs2('Linear CBC (unit test) to test new diagnostics', checks)
-    use gs2_main, only: run_gs2, finish_gs2
-    use unit_tests
-    use mp, only: init_mp, mp_comm, proc0, test_driver_flag, finish_mp
-    use gs2_diagnostics
-#ifdef NEW_DIAG
-    use gs2_diagnostics_new, only: finish_gs2_diagnostics_new
-#endif 
-    implicit none
-    real :: eps
+program test_multigs2
+  use unit_tests
+  use mp, only: init_mp, finish_mp, mp_comm
+  use multigs2_library, only: initialize_multigs2
+  use multigs2_library, only: multigs2_library_type
+  use multigs2_library, only: run_ion_box
+  implicit none
+  real :: eps
+  type(multigs2_library_type) :: multigs2_obj
 
-    eps = 1.0e-7
-    if (precision(eps).lt. 11) eps = eps * 1000.0
+  eps = 1.0e-7
+  if (precision(eps).lt. 11) eps = eps * 1000.0
 
 
-    call init_mp
+  call init_mp
 
-    test_driver_flag = .true.
-    functional_test_flag = .true.
+  call announce_module_test("multigs2")
 
-   call announce_module_test("gs2_diagnostics")
+  multigs2_obj%mp_comm_external = .true.
+  multigs2_obj%mp_comm = mp_comm
 
-    call run_gs2(mp_comm)
+  call initialize_multigs2(multigs2_obj)
 
+  call announce_test("run_name")
+  call process_test(&
+    agrees_with(trim(multigs2_obj%run_name), "test_multigs2"),  &
+    "run_name")
 
-    call announce_test('diffusivity')
-    call process_test(diagnostics_unit_test_diffusivity(19.852483466900530, eps), 'diffusivity')
+  call run_ion_box(multigs2_obj)
 
-    call finish_gs2_diagnostics(ilast_step)
-#ifdef NEW_DIAG
-    call finish_gs2_diagnostics_new
-#endif 
+  call close_module_test("multigs2")
 
-    call finish_gs2
-
-
-
-   call close_module_test("gs2_diagnostics")
-
-    call finish_mp
+  call finish_mp
 
 contains
-  
 
 
-end program test_gs2_diagnostics
+
+end program test_multigs2
