@@ -534,6 +534,7 @@ include $(DEPEND)
 ifdef USE_FFT
     utils_mod += fft_save_wisdom.o
     gs2_mod += fft_save_wisdom.o
+    multigs2_mod += fft_save_wisdom.o
     ingen_mod += fft_save_wisdom.o
     generate_fftw_wisdom_mod += fft_save_wisdom.o
 endif
