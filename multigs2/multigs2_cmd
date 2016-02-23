@@ -1,0 +1,80 @@
+#! /bin/bash
+# Proper header for a bash script. Make sure that you run the command $ chmod +x script_name  - to make this script executable
+# This script performs a few administrative operations so that users do not have to
+#  manually duplicate and clean up input files when running multigs2. It is convenient for 
+# each electron scale simulation to have its input file. Since the input file for each these is the same
+# then it makes sense to automate this duplication
+
+ 
+#number of electron flux tubes, indexed from 1 to N. This needs to be made consistent with the ionscale input file
+N=3
+echo "Number of electronscale flux tubes is "$N
+#number of simulations 
+((S=N+1))
+echo "Number of gs2 versions to be run is "$S
+#number of processors to assign per simulation. This needs to be made consistent with the number of available processors.
+P=2
+echo "Assigning "$P" processors per simulation"
+
+# index
+i=1
+# name of master electron scale input file
+INPUT_BASE="slab" 
+INPUT_EL=$INPUT_BASE"_electron"
+EXTENSION=".in"
+
+
+
+######################
+#This code block copies the input file to N copies for multigs2 to use 
+######################
+FILE_IN=$INPUT_EL$EXTENSION #example of concatenation right here
+FILE_OUT= 
+echo $INPUT_EL
+echo "Using "$FILE_IN" as the electronscale flux tube input file"
+echo "make "$N" copies for multigs2 to use"
+while (( i<=N))
+do 
+  echo "$i" 
+  FILE_OUT=$INPUT_EL$i$EXTENSION 
+  echo $FILE_OUT
+  cp  $FILE_IN $FILE_OUT
+  ((i+=1))
+done
+
+####################
+# end of copy block
+####################
+
+###################
+# this code block runs multigs2 
+###################
+
+#total number of processors to use
+
+((Ptot=P*S))
+echo "Using "$Ptot" processors in total to run multigs2"
+mpirun -tag-output -n $Ptot multigs2 $INPUT_BASE$EXTENSION
+
+####################
+#end of run multigs2 block
+####################
+
+###################
+# now remove the many input files we made 
+###################
+i=1
+while (( i<=N))
+do
+  echo $i
+  FILE_OUT=$INPUT_EL$i$EXTENSION
+  echo "rm "$FILE_OUT
+  rm $FILE_OUT 
+  ((i+=1))
+done
+
+
+
+
+exit 0 
+
