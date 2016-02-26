@@ -13,7 +13,7 @@ module multigs2_library
   implicit none
 
   type multigs2_library_type
-    logical :: multigs2_comm_external = .false. 
+    logical :: mp_comm_external = .false. 
 !    integer :: multigs2_comm !this is multigs2's communicator
     logical :: run_name_external = .false.
 !    integer :: world_id !processor id, within the multigs2 communicator (i.e. multigs2_comm)
@@ -39,21 +39,11 @@ module multigs2_library
 
 ! This subroutine initializes the multiscale gs2 
     subroutine initialize_multigs2(multigs2_obj)
-! the next command is a preprocessor command which tells the compiler to only include these next lines is MPI is specified on build - taken care of by build script MRH
-!#ifdef MPI
-! - makes no sense to have multigs2 without installing mpi, so make this unconditional?
-!      use mpi, only: mpi_comm_world
-!      use mpi, only: mpi_init
-!      use mpi, only: mpi_comm_size
-!      use mpi, only: mpi_comm_rank
-!      use mpi, only: mpi_comm_split
-!#endif One doesn't need preprocessor statements around mp subroutines
       use mp, only : init_mp ! nearly equiv to mpi_initialize
       use mp, only : mp_comm ! holds mpi_comm_world (it seems)
       use mp, only : nproc! give the number of processors
       use mp, only : iproc ! gives the rank
       use mp, only : proc0
-  !     use mp, only : split_key_to_commtype ! makes new sub communicators using mpi_split, using full colour and key functionality
       use mp, only : split
       use command_line, only: cl_getarg
       implicit none
@@ -61,14 +51,9 @@ module multigs2_library
       integer :: length
       character(2000) :: temp
       integer ::  ierror,col,key
-     ! integer :: ntot_proc
       integer :: procperbox
       integer,allocatable :: sub_group_label(:) ! this will be a label for each processor - telling it which sub_communicator is belongs to
-     ! integer :: world_id,sub_id !first is the world rank or id, second will be the rank or id of the processor within the sub_communicator
       integer :: i,j ! loop variable
-     ! logical, parameter :: reorder=.true.
-     ! integer, dimension(2) :: dims
-     ! logical, dimension(2) :: period
       logical :: multigs2flag = .true. ! this flag merely has to be present - the actual value is not important     
 #ifndef MPI
 
@@ -77,15 +62,38 @@ module multigs2_library
       stop
 
 #endif      
+!#############
+! get the run name
+!#############
 
-      ! set the number of electron boxes - this needs to be input via an input file or cmd line later
+      if (.not. multigs2_obj%run_name_external) then 
+        call cl_getarg(1, temp, length, ierror)
+        multigs2_obj%run_name = temp(1:length-3) ! this takes characters 1 to the 4th till last as the run name somehow MRH
+!        multigs2_obj%run_name = temp(1:length) ! takes all the characters - now only the base of the input name is entered in cmd - i.e slab, not slab.in 
+      end if 
   
-      multigs2_obj%no_electron_boxes =3 
+     
+    ! <doc> cl_getarg (k,arg,length,ierror)
+    !  gets k-th argument string and its length
+    !  using intrinsic getarg or POSIX pxfgetarg
+    ! </doc>
+
+
+!###################
+! set the number of electron boxes using the multigs2 input file
+!###################  
+      
+      call read_multigs2_parameters(multigs2_obj)
+      !multigs2_obj%no_electron_boxes =3 
       multigs2_obj%no_simulations =  multigs2_obj%no_electron_boxes +1 
 
+!###################
+! initialize the mpi and do the communicator splitting
+!##################
+
 ! this bit of code sets the mpi communicator to be the world communicator if multiscale gs2 is not being run inside something else already.
-      if (.not. multigs2_obj%multigs2_comm_external) then 
-!#ifdef MPI 
+      if (.not. multigs2_obj%mp_comm_external) then 
+ 
         call init_mp(multigs2=multigs2flag)  ! calls the mp module for the first time, with the flag making it with pointers appropriate to multigs2 MRH
         multigs2_obj%multigs2_comm%id = mp_comm ! and sets multigs2_comm to be mpi_comm_world
       else  ! this option is for if multigs2 is being run inside something else and multigs2_comm is already set
@@ -96,10 +104,6 @@ module multigs2_library
       multigs2_obj%multigs2_comm%nproc = nproc ! the total number of procs running in multigs2
       multigs2_obj%multigs2_comm%proc0 = proc0 ! true if iproc =0
 
-!#ifdef MPI
-   !   call nproc_comm(multigs2_obj%multigs2_comm,ntot_proc) !given the communicator mp comm, this returns ntot_proc, the number of processors running
-!#endif    
-     ! ncolumns =  multigs2_obj%no_electron_boxes
       procperbox = multigs2_obj%multigs2_comm%nproc/multigs2_obj%no_simulations ! this is the number of processess per electron box
 
      
@@ -114,9 +118,6 @@ module multigs2_library
 
 ! end check 
 
-!#ifdef MPI         
-    !  call rank_comm(multigs2_obj%multigs2_comm,multigs2_obj%world_id) !this tells us the world_id of this processor MRH
-!#endif
 
 ! now arrange for the processors to be grouped together MRH
       allocate(sub_group_label(multigs2_obj%multigs2_comm%nproc))
@@ -128,17 +129,10 @@ module multigs2_library
       end do
       write(*,*) sub_group_label      
       
-!     do i=0,ntot_proc-1,1 ! sub_id (ranks) range from 0 to N-1 where N is ntot_proc - this is a feature of MPI MRH
-!        sub_group_label(i) = mod(i,multigs2_obj%no_simulations) ! this allocates an equal number of processors per box MRH
-!      end do
-!      key = multigs2_obj%world_id
       key = mod(multigs2_obj%multigs2_comm%iproc,procperbox)
       col = sub_group_label(multigs2_obj%multigs2_comm%iproc+1) ! plus 1 here because world_id goes from 0 to 1, fortran indices from 1 to ntot
       multigs2_obj%gs2_comm_id = col
-!#ifdef MPI
- !     call mpi_comm_split(multigs2_obj%multigs2_comm,multigs2_obj%sub_comm_id,&
-  !         multigs2_obj%sub_id, multigs2_obj%sub_comm, ierror)
-!#endif
+      
       call split(col,key,multigs2_obj%gs2_comm) 
      ! call split_key_to_commtype (col,key,multigs2_obj%gs2_comm)
  ! MRH here those processors with the same col are in the same communicator, 
@@ -146,36 +140,7 @@ module multigs2_library
  ! MRH gs2_comm keeps track of this for us? so we do not have to store col and key seperately in multigs2_obj?
  ! MRH gs2_comm also handily contains logical which tells us if it is the zero processor. 
       deallocate(sub_group_label)
- ! call MPI_COMM_SPLIT(MPI_COMM_WORLD,integer :: second_arg, integer :: third_arg, SUB_COMMUNICATOR, ierr) 
- !Here SUB_COMMUNICATOR is the same for all processes with the same second_arg,
-!  and the new my_id variable within this new communicator is given by the third_arg MRH 
 
-! now this processor has been assigned a communicator and sub_id within this communicator MRH
-
-       
-! ncolumns is the number of electron simulations per ion simulation - presumably this should be linked to the number of points in the ion flux tube at some point MRH.
-  !    nrows = ntot_proc/ncolumns
-  !    dims=(/ ncolumns, nrows /)     
-  !    if(ntot_proc /= ncolumns*nrows) then
-  !       ierror = 1
-  !       write(*,*) 'Number of processes must be divisible by number of electron simulations'
-  !       return
-  !    endif
-      ! create 2d cartesian topology for processes
-  !    period=(/ .false., .false. /)  !! no circular shift
-  !    ndim = 2
-  !    call mpi_cart_create(multigs2_obj%mp_comm, ndim, dims, period, reorder, multigs2_obj%sub_comm, ierror)
-
-      if (.not. multigs2_obj%run_name_external) then 
-        call cl_getarg(1, temp, length, ierror)
-        multigs2_obj%run_name = temp(1:length-3) ! this takes characters 1 to the 4th till last as the run name somehow MRH
-      end if 
-  
-     
-    ! <doc> cl_getarg (k,arg,length,ierror)
-    !  gets k-th argument string and its length
-    !  using intrinsic getarg or POSIX pxfgetarg
-    ! </doc>
 
  
 
@@ -293,7 +258,7 @@ module multigs2_library
 
       implicit none
       type(multigs2_library_type), intent(inout) :: multigs2_obj
-      if (.not. multigs2_obj%multigs2_comm_external) call finish_mp
+      if (.not. multigs2_obj%mp_comm_external) call finish_mp
 
     end subroutine finalize_multigs2
 
@@ -302,7 +267,6 @@ module multigs2_library
       use diagnostics_omega, only: omega_average    
       use mp, only: sum_reduce
       use mp, only: barrier
-     ! use mp, only:mp_comm,iproc
       use mp, only: scope !confusingly, allprocs is the gs2 proc group label for scope
       use mp, only: multigs2procs
       use mp, only: allprocs
@@ -314,7 +278,6 @@ module multigs2_library
       real :: eps ! the tolerance for comparing numbers
       complex, dimension(:,:,:), allocatable :: omega_from_all_gs2
       logical, intent(inout) :: test1,test2
-      !logical :: testr1=.false.,testr2=.true.,testi1=.false.,testi2=.true.,test_all 
       
       allocate(omega_from_all_gs2(size(omega_average,1),size(omega_average,2),&
           multigs2_obj%no_simulations))      
@@ -335,15 +298,11 @@ module multigs2_library
         end if 
       end do
       call barrier(multigs2_obj%multigs2_comm%id)! stops all processes that reach this point from proceeding until all have reached this point
-      call scope(multigs2procs) 
-    !  mp_comm = multigs2_obj%multigs2_comm ! assigns the internal mp_comm variable from mp to be the right communicator (here for multigs2 so we can communicate between gs2s)
-    !  iproc = multigs2_obj%world_id  ! assigns the the interal iproc variable from mp to be the world_id of that processor (here for multigs2 so we can communicate between gs2s)
 
+      call scope(multigs2procs) 
       call sum_reduce(omega_from_all_gs2,0) ! the zero here is the world_id of the destination of the result
       call scope(allprocs)
 
-    !  mp_comm = multigs2_obj%gs2_comm%id     ! set mp_comm back now to be the local gs2 communicator for safety
-    !  iproc = multigs2_obj%gs2_comm%iproc  ! set iproc back now to be the local gs2 processor rank
 
       ! test that assignment     
       if(multigs2_obj%multigs2_comm%iproc == 0) then
@@ -364,40 +323,37 @@ module multigs2_library
        end do
        write(*,*) "test1= ",test1,"test2= ",test2       
       end if 
-!      if(multigs2_obj%world_id ==0) then 
-!        do i=1,multigs2_obj%no_simulations,1
-! 
-!          omega_from_all_gs2(:,:,i) = omega_from_all_gs2(:,:,i)-omega_average ! fortran supports array operations
-!        end do
-!        write(*,*) omega_from_all_gs2
-!        
-!        do i=1,size(omega_average,1),1
-!          do j=1, size(omega_average,2),1
-!            do k=2,multigs2_obj%no_simulations
-!
-!              testr1 =( real(omega_from_all_gs2(i,j,k)) < 0.001).and. testr1    
-!
-!              testr2 =( real(omega_from_all_gs2(i,j,k) - omega_from_all_gs2(i,j,2)) < 0.001) .and. testr2
-!           
-!              testi1 =( aimag(omega_from_all_gs2(i,j,k)) < 0.001).and. testi1    
-!
-!              testi2 =( aimag(omega_from_all_gs2(i,j,k) - omega_from_all_gs2(i,j,2)) < 0.001) .and. testr2
-!           end do
-!          end do 
-!        end do
-!        test_all = ((.not. testr1) .and. testr2 ).and.  ((.not. testi1) .and. testi2 )
-!        write(*,*) "testr1 ",testr1, "testi1= ",testi1, "testr2= ",testr2, "testi2= ",testi2, "test_all= ",test_all
-!
-!       end if  
- !     if(multigs2_obj%world_id == 1) then
- !       write(*,*) omega_from_all_gs2
- !     end if 
-        
-      
 
 
       deallocate(omega_from_all_gs2)
     end subroutine communicate_omega
 
+    subroutine read_multigs2_parameters(multigs2_obj)
 
+!    use file_utils, only: input_unit, input_unit_exist
+ !   use unit_tests, only: debug_message
+    implicit none
+  !  integer, parameter :: verb=3
+  !  integer :: in_file
+    integer :: no_electron_flux_tubes 
+    type(multigs2_library_type), intent(inout) :: multigs2_obj
+    namelist /multigs2_init_parameters/ no_electron_flux_tubes
+    
+ !      call debug_message(verb, "multigs2_params::read_parameters start")
+    OPEN (UNIT=10, FILE=trim(multigs2_obj%run_name)//"_multigs2.in", STATUS='OLD',ACTION="read")
+    READ (10, NML=multigs2_init_parameters)
+    CLOSE (10)
+ 
+    multigs2_obj%no_electron_boxes = no_electron_flux_tubes
+
+    
+      
+   ! in_file = input_unit_exist("multigs2_init_parameters", exist)
+   ! if (exist) read (unit=in_file, nml=multigs2_init_parameters)
+
+   
+
+    end subroutine read_multigs2_parameters
+
+    
 end module multigs2_library
