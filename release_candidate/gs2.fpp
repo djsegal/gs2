@@ -91,6 +91,8 @@ program gs2
   call initialize_gs2_optimisation(state)
 
   if (state%optim%on) then
+    write (*,*) 'WARNING: The optimisation module is considered &
+      & experimental in gs2 7.0'
     call optimise_gs2(state)
   end if
   if (state%optim%auto .or. .not. state%optim%on) then
